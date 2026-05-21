@@ -5,3 +5,6 @@ runner.cpp
 latest_trace.json
 server.log
 *.log
+chrome-user-data/
+*.pdf
+.DS_Store

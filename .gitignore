@@ -8,3 +8,13 @@ server.log
 chrome-user-data/
 *.pdf
 .DS_Store
+
+# Test/Scratch scripts
+clean_templates.js
+fix_css.js
+fix_css2.js
+fix_html.js
+fix_html2.js
+test_llm_speed.js
+test_median.js
+ui_test.js

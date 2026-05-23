@@ -243,7 +243,7 @@ Example Test Case: ${question.exampleTestcases}`;
             }
         }
 
-        res.json({
+        const responseData = {
             title: question.title,
             difficulty: question.difficulty,
             content: question.content,
@@ -449,6 +449,7 @@ app.post('/generate', async (req, res) => {
         const {
             code,
             array,
+            multiArgs,
             is2D,
             isGraph,
             graphNodes: reqGraphNodes,
@@ -470,7 +471,7 @@ app.post('/generate', async (req, res) => {
         if (!code) {
             return res.status(400).json({ error: "Code is required." });
         }
-        if (!array && !isGraph && !(reqGraphEdges && reqGraphEdges.length)) {
+        if (!array && !multiArgs && !isGraph && !(reqGraphEdges && reqGraphEdges.length)) {
             return res.status(400).json({ error: "Test input (array or graph edges) is required." });
         }
 
@@ -556,27 +557,26 @@ app.post('/generate', async (req, res) => {
                 callStatement = `${funcName}(${callArgs});`;
             }
         } else {
-            // Match entrypoint that takes exactly one matching parameter (no commas in parameter list)
-            const singleParamRegex = /(vector<int>|void|int|bool|vector<vector<int>>|ListNode\*)\s+([a-zA-Z0-9_]+)\s*\(\s*(vector<int>|TreeNode\*|TreeNode\s*\*|vector<vector<int>>|ListNode\*|string|const\s+string\s*&|std::string)\s*&?\s*[a-zA-Z0-9_]*\s*\)/;
-            const funcMatch = code.match(singleParamRegex);
-
-            if (funcMatch) {
-                const funcName = funcMatch[2];
-                if (classMatch) {
-                    callStatement = `Solution sol;\n    sol.${funcName}(${paramType});`;
-                } else {
-                    callStatement = `${funcName}(${paramType});`;
-                }
+            const robustClassMatch = code.match(/class\s+Solution[\s\S]*?(?:public:\s*)?([a-zA-Z0-9_<>:]+)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+            if (robustClassMatch) {
+                const funcName = robustClassMatch[2];
+                const argsCount = robustClassMatch[3].split(',').filter(p => p.trim() !== '').length;
+                let callArgsStr = (multiArgs && Array.isArray(multiArgs) && multiArgs.length > 0)
+                    ? multiArgs.map((_, idx) => `nums${idx + 1}`).join(', ')
+                    : 'nums';
+                callStatement = `Solution sol;\n    sol.${funcName}(${callArgsStr});`;
             } else {
-                // Fallback simple class match
-                const simpleClassMatch = code.match(/class\s+Solution[\s\S]*?(?:vector<int>|int|bool|void|vector<vector<int>>)\s+([a-zA-Z0-9_]+)\s*\(/);
-                if (simpleClassMatch) {
-                    const funcName = simpleClassMatch[1];
-                    callStatement = `Solution sol;\n    sol.${funcName}(${paramType});`;
+                const funcMatch = code.match(/(?:[a-zA-Z0-9_<>:]+)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/);
+                if (funcMatch && funcMatch[1] !== 'main' && funcMatch[1] !== 'cout' && funcMatch[1] !== 'return') {
+                    const funcName = funcMatch[1];
+                    let callArgsStr = (multiArgs && Array.isArray(multiArgs) && multiArgs.length > 0)
+                        ? multiArgs.map((_, idx) => `nums${idx + 1}`).join(', ')
+                        : 'nums';
+                    callStatement = `${funcName}(${callArgsStr});`;
                 }
             }
         }
-
+        
         // 1. Build the C++ Runner
         const cppCode = `
 #include <iostream>
@@ -847,6 +847,11 @@ void focus_pointer_impl(const string& label, int idx, int line = 0) {
     cout << "{\\\"step\\\":" << stepCount << ",\\\"action\\":\\\"focus_pointer\\\",\\\"label\\\":\\\"" << label << "\\\",\\\"index\\\":" << idx << ",\\\"value\\\":" << value << ",\\\"line\\\":" << line << "}," << endl;
 }
 
+void resolve_impl(const string& label, double resolvedValue, int line = 0) {
+    stepCount++;
+    check_step_limit();
+    cout << "{\\\"step\\\":" << stepCount << ",\\\"action\\\":\\\"resolve\\\",\\\"label\\\":\\\"" << label << "\\\",\\\"value\\\":" << resolvedValue << ",\\\"line\\\":" << line << "}," << endl;
+}
 void resolve_impl(int idx, int resolvedValue, int line = 0) {
     stepCount++;
     check_step_limit();
@@ -1017,13 +1022,18 @@ ${code}
 int main() {
     string strInput = "${stringValue}";
     bool is_string_problem = ${isStringProblem ? 'true' : 'false'};
-    vector<int> nums = {${isStringProblem ? stringValue.split('').map(c => c.charCodeAt(0)).join(', ') : (isGraphProblem ? '' : (isGridProblem ? '0' : numsArray.map(x => {
+${
+    (multiArgs && Array.isArray(multiArgs) && multiArgs.length > 0)
+        ? multiArgs.map((arr, idx) => `    vector<int> nums${idx + 1} = {${arr.map(x => x === null ? -9999 : x).join(', ')}};`).join('\n')
+        : `    vector<int> nums = {${isStringProblem ? stringValue.split('').map(c => c.charCodeAt(0)).join(', ') : (isGraphProblem ? '' : (isGridProblem ? '0' : numsArray.map(x => {
         if (x === null) return -9999;
         const parsedX = parseInt(x, 10);
         return isNaN(parsedX) ? 0 : parsedX;
-    }).join(', ')))}};
+    }).join(', ')))}};`
+}
     vector<string> tree_nodes = {${isStringProblem ? stringValue.split('').map(c => `"${c.replace(/"/g, '\\"')}"`).join(', ') : (isGraphProblem ? '""' : (isGridProblem ? '""' : numsArray.map(x => x === null ? `"null"` : `"${x}"`).join(', ')))}};
-    global_nums = nums;
+    global_nums = ${multiArgs && multiArgs.length > 0 ? 'nums1' : 'nums'};
+    ${multiArgs && multiArgs.length > 0 ? 'vector<int>& nums = nums1;' : ''}
     bool is_tree_problem = ${isTreeProblem ? 'true' : 'false'};
     bool is_grid_problem = ${isGridProblem ? 'true' : 'false'};
     bool is_list_problem = ${isListProblem ? 'true' : 'false'};

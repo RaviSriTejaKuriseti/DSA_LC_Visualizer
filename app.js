@@ -1582,7 +1582,6 @@ importLcBtn.addEventListener('click', async () => {
 
                                         eCard.addEventListener('click', () => {
                                             arrayInput.value = ec.input;
-                                            generateBtn.click();
                                         });
 
                                         edgeContainer.appendChild(eCard);
@@ -2392,8 +2391,6 @@ async function fetchEdgeCaseSuggestions() {
 
                 card.addEventListener('click', () => {
                     arrayInput.value = c.input;
-                    // Trigger click on generate trace button to immediately visualize it!
-                    generateBtn.click();
                 });
 
                 container.appendChild(card);
